@@ -175,6 +175,18 @@ func DefaultConfig() *Config {
 				MaxConnections: 100,
 				AllowFrom:      FlexibleStringSlice{},
 			},
+			WebSocketAudio: WebSocketAudioConfig{
+				Enabled:           false,
+				Token:             "",
+				PathPrefix:        "/ws/audio",
+				RequestTimeoutSec: 300,
+				Audio: WebSocketAudioModes{
+					EnableInput:  true,
+					EnableOutput: true,
+					InputFormat:  "wav",
+					OutputFormat: "mp3",
+				},
+			},
 		},
 		Providers: ProvidersConfig{
 			OpenAI: OpenAIProviderConfig{WebSearch: true},
@@ -549,6 +561,25 @@ func DefaultConfig() *Config {
 		},
 		Voice: VoiceConfig{
 			EchoTranscription: false,
+		},
+		Audio: AudioConfig{
+			Enabled: false,
+			ASR: AudioASRConfig{
+				Provider: "",
+				OpenAI: OpenAIASRConfig{
+					BaseURL: "https://api.openai.com/v1",
+					Model:   "whisper-1",
+				},
+			},
+			TTS: AudioTTSConfig{
+				Provider: "",
+				OpenAI: OpenAITTSConfig{
+					BaseURL:        "https://api.openai.com/v1",
+					Model:          "tts-1",
+					Voice:          "alloy",
+					ResponseFormat: "mp3",
+				},
+			},
 		},
 		BuildInfo: BuildInfo{
 			Version:   Version,

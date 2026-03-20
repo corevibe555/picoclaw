@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/agent"
+	"github.com/sipeed/picoclaw/pkg/asr"
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
 	_ "github.com/sipeed/picoclaw/pkg/channels/dingtalk"
@@ -25,6 +26,7 @@ import (
 	_ "github.com/sipeed/picoclaw/pkg/channels/qq"
 	_ "github.com/sipeed/picoclaw/pkg/channels/slack"
 	_ "github.com/sipeed/picoclaw/pkg/channels/telegram"
+	_ "github.com/sipeed/picoclaw/pkg/channels/websocket_audio"
 	_ "github.com/sipeed/picoclaw/pkg/channels/wecom"
 	_ "github.com/sipeed/picoclaw/pkg/channels/whatsapp"
 	_ "github.com/sipeed/picoclaw/pkg/channels/whatsapp_native"
@@ -225,9 +227,9 @@ func setupAndStartServices(
 	agentLoop.SetChannelManager(runningServices.ChannelManager)
 	agentLoop.SetMediaStore(runningServices.MediaStore)
 
-	if transcriber := voice.DetectTranscriber(cfg); transcriber != nil {
-		agentLoop.SetTranscriber(transcriber)
-		logger.InfoCF("voice", "Transcription enabled (agent-level)", map[string]any{"provider": transcriber.Name()})
+	if tr := pickTranscriber(cfg); tr != nil {
+		agentLoop.SetTranscriber(tr)
+		logger.InfoCF("voice", "Transcription enabled (agent-level)", map[string]any{"provider": tr.Name()})
 	}
 
 	enabledChannels := runningServices.ChannelManager.GetEnabledChannels()
@@ -260,6 +262,14 @@ func setupAndStartServices(
 	}
 
 	return runningServices, nil
+}
+
+// pickTranscriber prefers unified audio.asr (issue #1648), then legacy Groq detection.
+func pickTranscriber(cfg *config.Config) voice.Transcriber {
+	if t := asr.SelectTranscriber(cfg); t != nil {
+		return t
+	}
+	return voice.DetectTranscriber(cfg)
 }
 
 func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Duration) {
@@ -450,10 +460,10 @@ func restartServices(
 		fmt.Println("  ✓ Device event service restarted")
 	}
 
-	transcriber := voice.DetectTranscriber(cfg)
-	al.SetTranscriber(transcriber)
-	if transcriber != nil {
-		logger.InfoCF("voice", "Transcription re-enabled (agent-level)", map[string]any{"provider": transcriber.Name()})
+	tr := pickTranscriber(cfg)
+	al.SetTranscriber(tr)
+	if tr != nil {
+		logger.InfoCF("voice", "Transcription re-enabled (agent-level)", map[string]any{"provider": tr.Name()})
 	} else {
 		logger.InfoCF("voice", "Transcription disabled", nil)
 	}

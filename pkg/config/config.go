@@ -88,6 +88,8 @@ type Config struct {
 	Heartbeat HeartbeatConfig `json:"heartbeat"`
 	Devices   DevicesConfig   `json:"devices"`
 	Voice     VoiceConfig     `json:"voice"`
+	// Audio configures ASR/TTS providers for gateway-integrated voice (issue #1648).
+	Audio AudioConfig `json:"audio,omitempty"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty"`
 }
@@ -257,22 +259,23 @@ func (d *AgentDefaults) GetModelName() string {
 }
 
 type ChannelsConfig struct {
-	WhatsApp   WhatsAppConfig   `json:"whatsapp"`
-	Telegram   TelegramConfig   `json:"telegram"`
-	Feishu     FeishuConfig     `json:"feishu"`
-	Discord    DiscordConfig    `json:"discord"`
-	MaixCam    MaixCamConfig    `json:"maixcam"`
-	QQ         QQConfig         `json:"qq"`
-	DingTalk   DingTalkConfig   `json:"dingtalk"`
-	Slack      SlackConfig      `json:"slack"`
-	Matrix     MatrixConfig     `json:"matrix"`
-	LINE       LINEConfig       `json:"line"`
-	OneBot     OneBotConfig     `json:"onebot"`
-	WeCom      WeComConfig      `json:"wecom"`
-	WeComApp   WeComAppConfig   `json:"wecom_app"`
-	WeComAIBot WeComAIBotConfig `json:"wecom_aibot"`
-	Pico       PicoConfig       `json:"pico"`
-	IRC        IRCConfig        `json:"irc"`
+	WhatsApp       WhatsAppConfig       `json:"whatsapp"`
+	Telegram       TelegramConfig       `json:"telegram"`
+	Feishu         FeishuConfig         `json:"feishu"`
+	Discord        DiscordConfig        `json:"discord"`
+	MaixCam        MaixCamConfig        `json:"maixcam"`
+	QQ             QQConfig             `json:"qq"`
+	DingTalk       DingTalkConfig       `json:"dingtalk"`
+	Slack          SlackConfig          `json:"slack"`
+	Matrix         MatrixConfig         `json:"matrix"`
+	LINE           LINEConfig           `json:"line"`
+	OneBot         OneBotConfig         `json:"onebot"`
+	WeCom          WeComConfig          `json:"wecom"`
+	WeComApp       WeComAppConfig       `json:"wecom_app"`
+	WeComAIBot     WeComAIBotConfig     `json:"wecom_aibot"`
+	Pico           PicoConfig           `json:"pico"`
+	IRC            IRCConfig            `json:"irc"`
+	WebSocketAudio WebSocketAudioConfig `json:"websocket_audio"`
 }
 
 // GroupTriggerConfig controls when the bot responds in group chats.
@@ -504,6 +507,63 @@ type DevicesConfig struct {
 
 type VoiceConfig struct {
 	EchoTranscription bool `json:"echo_transcription" env:"PICOCLAW_VOICE_ECHO_TRANSCRIPTION"`
+}
+
+// AudioConfig holds ASR/TTS provider settings (see docs/channels/websocket_audio/README.md).
+type AudioConfig struct {
+	Enabled bool           `json:"enabled" env:"PICOCLAW_AUDIO_ENABLED"`
+	ASR     AudioASRConfig `json:"asr"`
+	TTS     AudioTTSConfig `json:"tts"`
+}
+
+// AudioASRConfig selects an ASR provider and its vendor-specific block.
+type AudioASRConfig struct {
+	Provider string          `json:"provider" env:"PICOCLAW_AUDIO_ASR_PROVIDER"` // "openai", "groq", ""
+	OpenAI   OpenAIASRConfig `json:"openai"`
+}
+
+// OpenAIASRConfig configures OpenAI-compatible speech-to-text (Whisper).
+type OpenAIASRConfig struct {
+	APIKey   string `json:"api_key"   env:"PICOCLAW_AUDIO_ASR_OPENAI_API_KEY"`
+	BaseURL  string `json:"base_url"  env:"PICOCLAW_AUDIO_ASR_OPENAI_BASE_URL"`
+	Model    string `json:"model"     env:"PICOCLAW_AUDIO_ASR_OPENAI_MODEL"`
+	Language string `json:"language"  env:"PICOCLAW_AUDIO_ASR_OPENAI_LANGUAGE"`
+}
+
+// AudioTTSConfig selects a TTS provider and its vendor-specific block.
+type AudioTTSConfig struct {
+	Provider string          `json:"provider" env:"PICOCLAW_AUDIO_TTS_PROVIDER"` // "openai", ""
+	OpenAI   OpenAITTSConfig `json:"openai"`
+}
+
+// OpenAITTSConfig configures OpenAI-compatible text-to-speech.
+type OpenAITTSConfig struct {
+	APIKey         string  `json:"api_key"           env:"PICOCLAW_AUDIO_TTS_OPENAI_API_KEY"`
+	BaseURL        string  `json:"base_url"          env:"PICOCLAW_AUDIO_TTS_OPENAI_BASE_URL"`
+	Model          string  `json:"model"             env:"PICOCLAW_AUDIO_TTS_OPENAI_MODEL"`
+	Voice          string  `json:"voice"             env:"PICOCLAW_AUDIO_TTS_OPENAI_VOICE"`
+	Speed          float64 `json:"speed"             env:"PICOCLAW_AUDIO_TTS_OPENAI_SPEED"`
+	ResponseFormat string  `json:"response_format"   env:"PICOCLAW_AUDIO_TTS_OPENAI_RESPONSE_FORMAT"`
+}
+
+// WebSocketAudioConfig enables the WebSocket voice/text channel on the gateway HTTP server.
+type WebSocketAudioConfig struct {
+	Enabled            bool                `json:"enabled"                     env:"PICOCLAW_CHANNELS_WEBSOCKET_AUDIO_ENABLED"`
+	Token              string              `json:"token"                       env:"PICOCLAW_CHANNELS_WEBSOCKET_AUDIO_TOKEN"`
+	PathPrefix         string              `json:"path_prefix"                 env:"PICOCLAW_CHANNELS_WEBSOCKET_AUDIO_PATH_PREFIX"`
+	AllowOrigins       []string            `json:"allow_origins,omitempty"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from"                  env:"PICOCLAW_CHANNELS_WEBSOCKET_AUDIO_ALLOW_FROM"`
+	RequestTimeoutSec  int                 `json:"request_timeout_sec"         env:"PICOCLAW_CHANNELS_WEBSOCKET_AUDIO_REQUEST_TIMEOUT_SEC"`
+	ReasoningChannelID string              `json:"reasoning_channel_id"        env:"PICOCLAW_CHANNELS_WEBSOCKET_AUDIO_REASONING_CHANNEL_ID"`
+	Audio              WebSocketAudioModes `json:"audio"`
+}
+
+// WebSocketAudioModes controls ASR/TTS usage per connection (issue #1648 interaction modes).
+type WebSocketAudioModes struct {
+	EnableInput  bool   `json:"enable_input"`
+	EnableOutput bool   `json:"enable_output"`
+	InputFormat  string `json:"input_format"`  // hint: wav, mp3, webm, ogg
+	OutputFormat string `json:"output_format"` // hint: mp3, opus, wav, aac (provider-dependent)
 }
 
 type ProvidersConfig struct {

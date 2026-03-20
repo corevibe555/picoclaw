@@ -303,6 +303,12 @@ func TestDefaultConfig_Channels(t *testing.T) {
 	if cfg.Channels.Matrix.Enabled {
 		t.Error("Matrix should be disabled by default")
 	}
+	if cfg.Channels.WebSocketAudio.Enabled {
+		t.Error("WebSocket audio channel should be disabled by default")
+	}
+	if cfg.Audio.Enabled {
+		t.Error("audio should be disabled by default")
+	}
 }
 
 // TestDefaultConfig_WebTools verifies web tools config

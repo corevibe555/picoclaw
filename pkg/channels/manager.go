@@ -63,8 +63,9 @@ var channelRateConfig = map[string]float64{
 	"slack":    1,
 	"matrix":   2,
 	"line":     10,
-	"qq":       5,
-	"irc":      2,
+	"qq":                5,
+	"irc":               2,
+	"websocket_audio":   10,
 }
 
 type channelWorker struct {
@@ -301,6 +302,10 @@ func (m *Manager) initChannels() error {
 
 	if m.config.Channels.Pico.Enabled && m.config.Channels.Pico.Token != "" {
 		m.initChannel("pico", "Pico")
+	}
+
+	if m.config.Channels.WebSocketAudio.Enabled && m.config.Channels.WebSocketAudio.Token != "" {
+		m.initChannel("websocket_audio", "WebSocket Audio")
 	}
 
 	if m.config.Channels.IRC.Enabled && m.config.Channels.IRC.Server != "" {
