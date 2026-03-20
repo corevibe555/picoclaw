@@ -175,6 +175,13 @@ func DefaultConfig() *Config {
 				MaxConnections: 100,
 				AllowFrom:      FlexibleStringSlice{},
 			},
+			OpenAIAPI: OpenAIAPIConfig{
+				Enabled:           false,
+				APIKey:            "",
+				PathPrefix:        "/openai",
+				AllowFrom:         FlexibleStringSlice{},
+				RequestTimeoutSec: 300,
+			},
 		},
 		Providers: ProvidersConfig{
 			OpenAI: OpenAIProviderConfig{WebSearch: true},

@@ -63,8 +63,9 @@ var channelRateConfig = map[string]float64{
 	"slack":    1,
 	"matrix":   2,
 	"line":     10,
-	"qq":       5,
-	"irc":      2,
+	"qq":         5,
+	"irc":        2,
+	"openai_api": 20,
 }
 
 type channelWorker struct {
@@ -301,6 +302,10 @@ func (m *Manager) initChannels() error {
 
 	if m.config.Channels.Pico.Enabled && m.config.Channels.Pico.Token != "" {
 		m.initChannel("pico", "Pico")
+	}
+
+	if m.config.Channels.OpenAIAPI.Enabled {
+		m.initChannel("openai_api", "OpenAI API")
 	}
 
 	if m.config.Channels.IRC.Enabled && m.config.Channels.IRC.Server != "" {

@@ -273,6 +273,7 @@ type ChannelsConfig struct {
 	WeComAIBot WeComAIBotConfig `json:"wecom_aibot"`
 	Pico       PicoConfig       `json:"pico"`
 	IRC        IRCConfig        `json:"irc"`
+	OpenAIAPI  OpenAIAPIConfig  `json:"openai_api"`
 }
 
 // GroupTriggerConfig controls when the bot responds in group chats.
@@ -471,6 +472,17 @@ type PicoConfig struct {
 	MaxConnections  int                 `json:"max_connections,omitempty"`
 	AllowFrom       FlexibleStringSlice `json:"allow_from"                  env:"PICOCLAW_CHANNELS_PICO_ALLOW_FROM"`
 	Placeholder     PlaceholderConfig   `json:"placeholder,omitempty"`
+}
+
+// OpenAIAPIConfig enables an OpenAI-compatible HTTP API on the gateway (same host/port as gateway).
+// Clients use base URL: http(s)://<gateway_host>:<gateway_port><path_prefix>, e.g. http://127.0.0.1:18789/openai/v1
+type OpenAIAPIConfig struct {
+	Enabled            bool                `json:"enabled"                     env:"PICOCLAW_CHANNELS_OPENAI_API_ENABLED"`
+	APIKey             string              `json:"api_key"                     env:"PICOCLAW_CHANNELS_OPENAI_API_KEY"`
+	PathPrefix         string              `json:"path_prefix"                 env:"PICOCLAW_CHANNELS_OPENAI_API_PATH_PREFIX"`
+	AllowFrom          FlexibleStringSlice `json:"allow_from"                  env:"PICOCLAW_CHANNELS_OPENAI_API_ALLOW_FROM"`
+	RequestTimeoutSec  int                 `json:"request_timeout_sec"         env:"PICOCLAW_CHANNELS_OPENAI_API_REQUEST_TIMEOUT_SEC"`
+	ReasoningChannelID string              `json:"reasoning_channel_id"        env:"PICOCLAW_CHANNELS_OPENAI_API_REASONING_CHANNEL_ID"`
 }
 
 type IRCConfig struct {

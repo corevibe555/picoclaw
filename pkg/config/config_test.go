@@ -303,6 +303,9 @@ func TestDefaultConfig_Channels(t *testing.T) {
 	if cfg.Channels.Matrix.Enabled {
 		t.Error("Matrix should be disabled by default")
 	}
+	if cfg.Channels.OpenAIAPI.Enabled {
+		t.Error("OpenAI API channel should be disabled by default")
+	}
 }
 
 // TestDefaultConfig_WebTools verifies web tools config
