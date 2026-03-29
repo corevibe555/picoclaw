@@ -57,6 +57,8 @@ type AgentLoop struct {
 	stoppedChats sync.Map
 	// Per-chat mutex for serialized message processing within a single chat
 	chatMu sync.Map
+	// Tracks all goroutines spawned by Run() so they are drained before Run() returns.
+	goroutines sync.WaitGroup
 }
 
 // processOptions configures how a message is processed
@@ -265,6 +267,10 @@ func registerSharedTools(
 func (al *AgentLoop) Run(ctx context.Context) error {
 	al.running.Store(true)
 
+	// Drain all in-flight goroutines before returning so that callers (e.g. the
+	// gateway) can safely call Close() without racing with active requests.
+	defer al.goroutines.Wait()
+
 	if err := al.ensureMCPInitialized(ctx); err != nil {
 		return err
 	}
@@ -288,6 +294,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 				al.cancelTask(chatKey)
 			}
 
+			al.goroutines.Add(1)
 			go al.processAndSend(ctx, msg, chatKey)
 
 		default:
@@ -331,6 +338,8 @@ func (al *AgentLoop) getChatMu(chatKey string) *sync.Mutex {
 // Messages for the same chat are serialized via a per-chat mutex, so two
 // concurrent requests from the same chat never run the LLM in parallel.
 func (al *AgentLoop) processAndSend(ctx context.Context, msg bus.InboundMessage, chatKey string) {
+	defer al.goroutines.Done()
+
 	mu := al.getChatMu(chatKey)
 	mu.Lock()
 	defer mu.Unlock()
@@ -366,41 +375,22 @@ func (al *AgentLoop) processAndSend(ctx context.Context, msg bus.InboundMessage,
 	}
 
 	if response == "" {
+		// Empty response means either: the message tool already sent directly to
+		// the user (handled inside processMessage), or the LLM had nothing to say.
 		return
 	}
 
-	// Check if the message tool already sent a response during this round.
-	// If so, skip publishing to avoid duplicate messages to the user.
-	// Use default agent's tools to check (message tool is shared).
-	alreadySent := false
-	defaultAgent := al.GetRegistry().GetDefaultAgent()
-	if defaultAgent != nil {
-		if tool, ok := defaultAgent.Tools.Get("message"); ok {
-			if mt, ok := tool.(*tools.MessageTool); ok {
-				alreadySent = mt.HasSentInRound()
-			}
-		}
-	}
-
-	if !alreadySent {
-		al.bus.PublishOutbound(ctx, bus.OutboundMessage{
-			Channel: msg.Channel,
-			ChatID:  msg.ChatID,
-			Content: response,
+	al.bus.PublishOutbound(ctx, bus.OutboundMessage{
+		Channel: msg.Channel,
+		ChatID:  msg.ChatID,
+		Content: response,
+	})
+	logger.InfoCF("agent", "Published outbound response",
+		map[string]any{
+			"channel":     msg.Channel,
+			"chat_id":     msg.ChatID,
+			"content_len": len(response),
 		})
-		logger.InfoCF("agent", "Published outbound response",
-			map[string]any{
-				"channel":     msg.Channel,
-				"chat_id":     msg.ChatID,
-				"content_len": len(response),
-			})
-	} else {
-		logger.DebugCF(
-			"agent",
-			"Skipped outbound (message tool already sent)",
-			map[string]any{"channel": msg.Channel},
-		)
-	}
 }
 
 func (al *AgentLoop) Stop() {
@@ -835,7 +825,24 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		return response, nil
 	}
 
-	return al.runAgentLoop(ctx, agent, opts)
+	response, err := al.runAgentLoop(ctx, agent, opts)
+	if err != nil {
+		return "", err
+	}
+
+	// If the message tool sent a response during this round, suppress the final
+	// LLM content to prevent a duplicate outbound message. This check is
+	// performed here (same goroutine, same agent) rather than in processAndSend
+	// to avoid a cross-goroutine logical race on the shared MessageTool flag.
+	if tool, ok := agent.Tools.Get("message"); ok {
+		if mt, ok := tool.(*tools.MessageTool); ok {
+			if mt.HasSentInRound() {
+				return "", nil
+			}
+		}
+	}
+
+	return response, nil
 }
 
 func (al *AgentLoop) resolveMessageRoute(msg bus.InboundMessage) (routing.ResolvedRoute, *AgentInstance, error) {
