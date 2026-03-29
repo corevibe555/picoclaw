@@ -14,4 +14,7 @@ type Runtime struct {
 	SwitchModel        func(value string) (oldModel string, err error)
 	SwitchChannel      func(value string) error
 	ClearHistory       func() error
+	// StopTask cancels the task currently running in this chat and returns true
+	// if there was an active task to cancel, false if no task was running.
+	StopTask func() bool
 }

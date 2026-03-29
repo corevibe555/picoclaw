@@ -21,6 +21,34 @@ func TestRegistry_Definitions_ReturnsCopy(t *testing.T) {
 	}
 }
 
+func TestRegistry_MatchesCommand_ByNameAndAlias(t *testing.T) {
+	r := NewRegistry([]Definition{
+		{Name: "stop", Aliases: []string{"cancel", "abort"}},
+		{Name: "help"},
+	})
+
+	cases := []struct {
+		text    string
+		command string
+		want    bool
+	}{
+		{"/stop", "stop", true},
+		{"!stop", "stop", true},
+		{"/cancel", "stop", true},
+		{"/abort", "stop", true},
+		{"/STOP", "stop", true},
+		{"/stop", "help", false},
+		{"/help", "stop", false},
+		{"hello", "stop", false},
+	}
+	for _, tc := range cases {
+		got := r.MatchesCommand(tc.text, tc.command)
+		if got != tc.want {
+			t.Errorf("MatchesCommand(%q, %q) = %v, want %v", tc.text, tc.command, got, tc.want)
+		}
+	}
+}
+
 func TestRegistry_Lookup_MatchesByLowercaseNameAndAlias(t *testing.T) {
 	r := NewRegistry([]Definition{
 		{Name: "Help", Aliases: []string{"Assist"}},

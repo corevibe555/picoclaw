@@ -119,6 +119,90 @@ func TestBuiltinShowAgents_RestoresOldBehavior(t *testing.T) {
 	}
 }
 
+func TestBuiltinStop_IsRegistered(t *testing.T) {
+	defs := BuiltinDefinitions()
+	_ = findDefinitionByName(t, defs, "stop")
+}
+
+func TestBuiltinStop_AliasesRegistered(t *testing.T) {
+	reg := NewRegistry(BuiltinDefinitions())
+	for _, alias := range []string{"cancel", "abort"} {
+		def, ok := reg.Lookup(alias)
+		if !ok {
+			t.Fatalf("alias %q not found in registry", alias)
+		}
+		if def.Name != "stop" {
+			t.Fatalf("alias %q resolves to %q, want %q", alias, def.Name, "stop")
+		}
+	}
+}
+
+func TestBuiltinStop_NoActiveTask(t *testing.T) {
+	rt := &Runtime{
+		StopTask: func() bool { return false },
+	}
+	defs := BuiltinDefinitions()
+	ex := NewExecutor(NewRegistry(defs), rt)
+
+	var reply string
+	res := ex.Execute(context.Background(), Request{
+		Text: "/stop",
+		Reply: func(text string) error {
+			reply = text
+			return nil
+		},
+	})
+	if res.Outcome != OutcomeHandled {
+		t.Fatalf("/stop: outcome=%v, want OutcomeHandled", res.Outcome)
+	}
+	if reply != "No active task to stop." {
+		t.Fatalf("/stop reply=%q, want %q", reply, "No active task to stop.")
+	}
+}
+
+func TestBuiltinStop_ActiveTaskStopped(t *testing.T) {
+	rt := &Runtime{
+		StopTask: func() bool { return true },
+	}
+	defs := BuiltinDefinitions()
+	ex := NewExecutor(NewRegistry(defs), rt)
+
+	var reply string
+	res := ex.Execute(context.Background(), Request{
+		Text: "/stop",
+		Reply: func(text string) error {
+			reply = text
+			return nil
+		},
+	})
+	if res.Outcome != OutcomeHandled {
+		t.Fatalf("/stop: outcome=%v, want OutcomeHandled", res.Outcome)
+	}
+	if reply != "Task stopped." {
+		t.Fatalf("/stop reply=%q, want %q", reply, "Task stopped.")
+	}
+}
+
+func TestBuiltinStop_Unavailable_WhenRuntimeNil(t *testing.T) {
+	defs := BuiltinDefinitions()
+	ex := NewExecutor(NewRegistry(defs), nil)
+
+	var reply string
+	res := ex.Execute(context.Background(), Request{
+		Text: "/stop",
+		Reply: func(text string) error {
+			reply = text
+			return nil
+		},
+	})
+	if res.Outcome != OutcomeHandled {
+		t.Fatalf("/stop: outcome=%v, want OutcomeHandled", res.Outcome)
+	}
+	if reply != unavailableMsg {
+		t.Fatalf("/stop reply=%q, want %q", reply, unavailableMsg)
+	}
+}
+
 func TestBuiltinListAgents_RestoresOldBehavior(t *testing.T) {
 	rt := &Runtime{
 		ListAgentIDs: func() []string {

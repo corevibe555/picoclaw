@@ -51,6 +51,12 @@ type AgentLoop struct {
 	mu             sync.RWMutex
 	// Track active requests for safe provider cleanup
 	activeRequests sync.WaitGroup
+	// Per-chat task cancellation: chatKey -> context.CancelFunc
+	taskCancels sync.Map
+	// Per-chat stop flag: chatKey -> struct{} (consumed once by /stop handler)
+	stoppedChats sync.Map
+	// Per-chat mutex for serialized message processing within a single chat
+	chatMu sync.Map
 }
 
 // processOptions configures how a message is processed
@@ -271,65 +277,130 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
-			// Process message
-			// TODO: Re-enable media cleanup after inbound media is properly consumed by the agent.
-			// Currently disabled because files are deleted before the LLM can access their content.
-			// defer func() {
-			// 	if al.mediaStore != nil && msg.MediaScope != "" {
-			// 		if releaseErr := al.mediaStore.ReleaseAll(msg.MediaScope); releaseErr != nil {
-			// 			logger.WarnCF("agent", "Failed to release media", map[string]any{
-			// 				"scope": msg.MediaScope,
-			// 				"error": releaseErr.Error(),
-			// 			})
-			// 		}
-			// 	}
-			// }()
 
-			response, err := al.processMessage(ctx, msg)
-			if err != nil {
-				response = fmt.Sprintf("Error processing message: %v", err)
+			chatKey := msgChatKey(msg)
+
+			// Fast-path: cancel an active LLM task immediately when /stop arrives,
+			// before the goroutine even starts. This lets context cancellation
+			// propagate into the LLM provider right away rather than waiting for
+			// the per-chat mutex to be acquired.
+			if al.isStopCommand(msg.Content) {
+				al.cancelTask(chatKey)
 			}
 
-			if response != "" {
-				// Check if the message tool already sent a response during this round.
-				// If so, skip publishing to avoid duplicate messages to the user.
-				// Use default agent's tools to check (message tool is shared).
-				alreadySent := false
-				defaultAgent := al.GetRegistry().GetDefaultAgent()
-				if defaultAgent != nil {
-					if tool, ok := defaultAgent.Tools.Get("message"); ok {
-						if mt, ok := tool.(*tools.MessageTool); ok {
-							alreadySent = mt.HasSentInRound()
-						}
-					}
-				}
+			go al.processAndSend(ctx, msg, chatKey)
 
-				if !alreadySent {
-					al.bus.PublishOutbound(ctx, bus.OutboundMessage{
-						Channel: msg.Channel,
-						ChatID:  msg.ChatID,
-						Content: response,
-					})
-					logger.InfoCF("agent", "Published outbound response",
-						map[string]any{
-							"channel":     msg.Channel,
-							"chat_id":     msg.ChatID,
-							"content_len": len(response),
-						})
-				} else {
-					logger.DebugCF(
-						"agent",
-						"Skipped outbound (message tool already sent)",
-						map[string]any{"channel": msg.Channel},
-					)
-				}
-			}
 		default:
 			time.Sleep(time.Microsecond * 200)
 		}
 	}
 
 	return nil
+}
+
+// msgChatKey returns a stable per-chat key for use in maps (taskCancels, chatMu, …).
+func msgChatKey(msg bus.InboundMessage) string {
+	return msg.Channel + ":" + msg.ChatID
+}
+
+// isStopCommand reports whether msg content resolves to the /stop command
+// (including its aliases /cancel and /abort).
+func (al *AgentLoop) isStopCommand(text string) bool {
+	if al.cmdRegistry == nil {
+		return false
+	}
+	return al.cmdRegistry.MatchesCommand(text, "stop")
+}
+
+// cancelTask cancels the active LLM task for chatKey, if any, and marks the
+// chat as stopped so the /stop handler can report the correct reply.
+func (al *AgentLoop) cancelTask(chatKey string) {
+	if v, ok := al.taskCancels.Load(chatKey); ok {
+		v.(context.CancelFunc)()
+		al.stoppedChats.Store(chatKey, struct{}{})
+	}
+}
+
+// getChatMu returns the per-chat mutex, creating it if it does not yet exist.
+func (al *AgentLoop) getChatMu(chatKey string) *sync.Mutex {
+	v, _ := al.chatMu.LoadOrStore(chatKey, &sync.Mutex{})
+	return v.(*sync.Mutex)
+}
+
+// processAndSend handles a single inbound message in a goroutine.
+// Messages for the same chat are serialized via a per-chat mutex, so two
+// concurrent requests from the same chat never run the LLM in parallel.
+func (al *AgentLoop) processAndSend(ctx context.Context, msg bus.InboundMessage, chatKey string) {
+	mu := al.getChatMu(chatKey)
+	mu.Lock()
+	defer mu.Unlock()
+
+	// /stop commands run under the parent context so they are never themselves
+	// cancellable via StopTask — they just query / consume the stopped flag.
+	isStop := al.isStopCommand(msg.Content)
+
+	var taskCtx context.Context
+	var cancel context.CancelFunc
+	if isStop {
+		taskCtx = ctx
+		cancel = func() {}
+	} else {
+		taskCtx, cancel = context.WithCancel(ctx)
+		al.taskCancels.Store(chatKey, cancel)
+	}
+	defer func() {
+		al.taskCancels.Delete(chatKey)
+		cancel()
+	}()
+
+	response, err := al.processMessage(taskCtx, msg)
+
+	// When the task context was cancelled (user sent /stop), suppress the
+	// error so the user does not see "context canceled" in their chat.
+	if taskCtx.Err() != nil {
+		return
+	}
+
+	if err != nil {
+		response = fmt.Sprintf("Error processing message: %v", err)
+	}
+
+	if response == "" {
+		return
+	}
+
+	// Check if the message tool already sent a response during this round.
+	// If so, skip publishing to avoid duplicate messages to the user.
+	// Use default agent's tools to check (message tool is shared).
+	alreadySent := false
+	defaultAgent := al.GetRegistry().GetDefaultAgent()
+	if defaultAgent != nil {
+		if tool, ok := defaultAgent.Tools.Get("message"); ok {
+			if mt, ok := tool.(*tools.MessageTool); ok {
+				alreadySent = mt.HasSentInRound()
+			}
+		}
+	}
+
+	if !alreadySent {
+		al.bus.PublishOutbound(ctx, bus.OutboundMessage{
+			Channel: msg.Channel,
+			ChatID:  msg.ChatID,
+			Content: response,
+		})
+		logger.InfoCF("agent", "Published outbound response",
+			map[string]any{
+				"channel":     msg.Channel,
+				"chat_id":     msg.ChatID,
+				"content_len": len(response),
+			})
+	} else {
+		logger.DebugCF(
+			"agent",
+			"Skipped outbound (message tool already sent)",
+			map[string]any{"channel": msg.Channel},
+		)
+	}
 }
 
 func (al *AgentLoop) Stop() {
@@ -1933,6 +2004,18 @@ func (al *AgentLoop) buildCommandsRuntime(agent *AgentInstance, opts *processOpt
 			return nil
 		}
 	}
+
+	if opts != nil {
+		chatKey := opts.Channel + ":" + opts.ChatID
+		rt.StopTask = func() bool {
+			// The fast-path in Run() already cancelled the task context and
+			// set the stoppedChats flag. Consume the flag here so the handler
+			// can report the right reply to the user.
+			_, wasStopped := al.stoppedChats.LoadAndDelete(chatKey)
+			return wasStopped
+		}
+	}
+
 	return rt
 }
 

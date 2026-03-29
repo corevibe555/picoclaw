@@ -30,6 +30,20 @@ func (r *Registry) Definitions() []Definition {
 	return out
 }
 
+// MatchesCommand reports whether text is a slash command whose canonical name
+// equals commandName (aliases are resolved before comparison).
+func (r *Registry) MatchesCommand(text, commandName string) bool {
+	name, ok := parseCommandName(text)
+	if !ok {
+		return false
+	}
+	def, found := r.Lookup(name)
+	if !found {
+		return false
+	}
+	return def.Name == commandName
+}
+
 // Lookup returns a command definition by normalized command name or alias.
 func (r *Registry) Lookup(name string) (Definition, bool) {
 	key := normalizeCommandName(name)
