@@ -150,7 +150,15 @@ func (c *BaseChannel) ShouldRespondInGroup(isMentioned bool, content string) (bo
 	if len(gt.Prefixes) > 0 {
 		for _, prefix := range gt.Prefixes {
 			if prefix != "" && strings.HasPrefix(content, prefix) {
-				return true, strings.TrimSpace(strings.TrimPrefix(content, prefix))
+				orig := strings.TrimSpace(content)
+				trimmed := strings.TrimSpace(strings.TrimPrefix(content, prefix))
+				// A lone "/" prefix also matches the "/" that starts slash-commands
+				// (/stop, /help, …). Stripping would turn /stop into "stop", which
+				// bypasses command routing and sends the text to the LLM.
+				if prefix == "/" && strings.HasPrefix(orig, "/") && !strings.HasPrefix(trimmed, "/") {
+					trimmed = orig
+				}
+				return true, trimmed
 			}
 		}
 		// Prefixes configured but none matched and not mentioned → ignore

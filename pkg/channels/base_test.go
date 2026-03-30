@@ -161,6 +161,14 @@ func TestShouldRespondInGroup(t *testing.T) {
 			wantRespond: true,
 			wantContent: "hello",
 		},
+		{
+			name:        "slash group prefix must not eat slash-commands",
+			gt:          config.GroupTriggerConfig{Prefixes: []string{"/"}},
+			isMentioned: false,
+			content:     "/stop",
+			wantRespond: true,
+			wantContent: "/stop",
+		},
 	}
 
 	for _, tt := range tests {

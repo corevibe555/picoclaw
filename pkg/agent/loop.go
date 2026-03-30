@@ -1105,6 +1105,10 @@ func (al *AgentLoop) runLLMIteration(
 	for iteration < agent.MaxIterations {
 		iteration++
 
+		if ctx.Err() != nil {
+			return "", iteration, ctx.Err()
+		}
+
 		logger.DebugCF("agent", "LLM iteration",
 			map[string]any{
 				"agent_id":  agent.ID,
